@@ -1,7 +1,8 @@
 # WebRTC Sunucusuz Chat
 
 Sunucusuz, P2P mesajlaşma. İki cihaz karekod tarayarak bağlanır — mesajlar doğrudan cihazlar arasında gider.
-*ŞİMDİ DENE:* https://theomgdev.github.io/WebRTC-Sunucusuz-Chat/
+
+**ŞİMDİ DENE:** https://theomgdev.github.io/WebRTC-Sunucusuz-Chat/
 
 ## Nasıl çalışır?
 
