@@ -2,6 +2,8 @@
 
 Sunucusuz, P2P mesajlaşma. İki cihaz karekod tarayarak bağlanır — mesajlar doğrudan cihazlar arasında gider.
 
+**ŞİMDİ DENE:** https://theomgdev.github.io/WebRTC-Sunucusuz-Chat/
+
 ## Nasıl çalışır?
 
 WebRTC bağlantısı kurulmadan önce iki tarafın birbirine bağlantı parametrelerini (SDP + ICE adayları) iletmesi gerekir. Bu uygulama bunu karekodla yapar:
