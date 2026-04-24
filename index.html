@@ -4,10 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>WebRTC Sunucusuz Chat</title>
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
-<script>window.QRCode || document.write('<script src="https://unpkg.com/qrcode@1.5.4/build/qrcode.min.js"><\/script>')</script>
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
-<script>window.jsQR || document.write('<script src="https://unpkg.com/jsqr@1.4.0/dist/jsQR.js"><\/script>')</script>
+<script src="qrcode.min.js"></script>
+<script src="jsQR.js"></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -110,7 +108,7 @@ button.ghost { background: var(--surface); border: 1px solid var(--border); colo
 <!-- 3. Show QR -->
 <div id="s-qr" class="screen" hidden>
   <p id="qr-txt" class="sub"></p>
-  <div id="qr-box"><canvas id="qr-canvas"></canvas></div>
+  <div id="qr-box"></div>
   <button id="btn-next" hidden></button>
   <p id="qr-err" class="err"></p>
 </div>
@@ -193,12 +191,10 @@ async function unpack(b64url) {
 async function showQR(data, instruction, nextLabel, nextCb) {
   $('qr-txt').textContent = instruction;
   $('qr-err').textContent = '';
-  if (typeof QRCode === 'undefined') {
-    $('qr-err').textContent = 'QR kütüphanesi yüklenemedi — internet bağlantınızı kontrol edin.';
-    return;
-  }
   try {
-    await QRCode.toCanvas($('qr-canvas'), data, { width: 260, errorCorrectionLevel: 'L' });
+    const box = $('qr-box');
+    box.innerHTML = '';
+    new QRCode(box, { text: data, width: 260, height: 260, correctLevel: QRCode.CorrectLevel.L });
   } catch (e) {
     $('qr-err').textContent = 'QR oluşturulamadı — SDP çok büyük olabilir: ' + e.message;
   }
