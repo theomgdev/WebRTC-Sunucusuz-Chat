@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WebRTC Sunucusuz Chat</title>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a;
+  --accent: #6c63ff; --accent2: #4ecdc4; --text: #e8eaf0;
+  --muted: #6b7280; --green: #22c55e; --red: #ef4444;
+}
+body {
+  background: var(--bg); color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  min-height: 100dvh; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; padding: 20px;
+}
+body.in-chat { justify-content: flex-start; padding: 0; }
+
+.screen { width: 100%; max-width: 420px; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+
+h1 {
+  font-size: 1.8rem; font-weight: 700;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.sub { color: var(--muted); font-size: 0.9rem; text-align: center; line-height: 1.6; }
+
+button {
+  background: var(--accent); color: #fff; border: none; border-radius: 12px;
+  padding: 14px 24px; font-size: 1rem; font-weight: 600; cursor: pointer;
+  width: 100%; transition: opacity .2s;
+}
+button:hover { opacity: .88; }
+button:disabled { opacity: .4; cursor: not-allowed; }
+button.ghost { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+
+.spinner {
+  width: 44px; height: 44px; border: 3px solid var(--border);
+  border-top-color: var(--accent); border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+#qr-box { background: #fff; padding: 14px; border-radius: 14px; }
+
+.cam-wrap { position: relative; width: 100%; max-width: 360px; }
+#scan-video { width: 100%; border-radius: 12px; background: #000; display: block; }
+.aim {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  width: 180px; height: 180px; border: 2px solid var(--accent); border-radius: 8px;
+  pointer-events: none;
+}
+.aim::before, .aim::after,
+.aim-br::before, .aim-br::after { content: ''; }
+
+/* ── Chat ── */
+#chat-wrap { width: 100%; max-width: 480px; height: 100dvh; display: flex; flex-direction: column; }
+.chat-hdr {
+  padding: 14px 16px; background: var(--surface); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+}
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+.chat-hdr h2 { font-size: .95rem; font-weight: 600; flex: 1; }
+.chat-hdr small { color: var(--muted); font-size: .72rem; }
+
+#messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+.msg { max-width: 78%; padding: 10px 14px; border-radius: 16px; font-size: .92rem; line-height: 1.45; word-break: break-word; }
+.msg.me   { align-self: flex-end; background: var(--accent); border-bottom-right-radius: 4px; }
+.msg.them { align-self: flex-start; background: var(--surface); border-bottom-left-radius: 4px; }
+.msg.sys  { align-self: center; color: var(--muted); font-size: .78rem; padding: 4px 0; background: none; }
+.msg-time { font-size: .68rem; opacity: .6; margin-top: 4px; text-align: right; }
+
+.chat-ftr {
+  padding: 12px 16px; background: var(--surface); border-top: 1px solid var(--border);
+  display: flex; gap: 8px; flex-shrink: 0;
+}
+.chat-ftr input {
+  flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 22px;
+  padding: 10px 16px; color: var(--text); font-size: .95rem; outline: none;
+}
+.chat-ftr input:focus { border-color: var(--accent); }
+.chat-ftr button { width: 44px; height: 44px; border-radius: 50%; padding: 0; flex-shrink: 0; }
+
+.err { color: var(--red); font-size: .85rem; text-align: center; min-height: 1.2em; }
+</style>
+</head>
+<body>
+
+<!-- 1. Idle -->
+<div id="s-idle" class="screen">
+  <h1>WebRTC Sunucusuz Chat</h1>
+  <p class="sub">Sunucu yok. İki cihaz karekod tarayarak bağlanır.<br>Mesajlar tamamen P2P gider.</p>
+  <button id="btn-start">Ben Başlatıyorum</button>
+  <button id="btn-join" class="ghost">Ben Katılıyorum &nbsp;(QR Tara)</button>
+</div>
+
+<!-- 2. Loading -->
+<div id="s-load" class="screen" hidden>
+  <div class="spinner"></div>
+  <p id="load-txt" class="sub"></p>
+</div>
+
+<!-- 3. Show QR -->
+<div id="s-qr" class="screen" hidden>
+  <p id="qr-txt" class="sub"></p>
+  <div id="qr-box"><canvas id="qr-canvas"></canvas></div>
+  <button id="btn-next" hidden></button>
+  <p id="qr-err" class="err"></p>
+</div>
+
+<!-- 4. Scan QR -->
+<div id="s-scan" class="screen" hidden>
+  <p id="scan-txt" class="sub"></p>
+  <div class="cam-wrap">
+    <video id="scan-video" autoplay playsinline muted></video>
+    <div class="aim"></div>
+  </div>
+  <canvas id="scan-canvas" hidden></canvas>
+  <p id="scan-err" class="err"></p>
+</div>
+
+<!-- 5. Chat -->
+<div id="chat-wrap" hidden>
+  <div class="chat-hdr">
+    <div class="dot"></div>
+    <div style="flex:1">
+      <h2>P2P Chat</h2>
+      <small id="cand-info">bağlı</small>
+    </div>
+  </div>
+  <div id="messages"></div>
+  <div class="chat-ftr">
+    <input id="msg-in" type="text" placeholder="Mesaj yaz..." maxlength="4000" autocomplete="off">
+    <button id="send-btn">➤</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ── ICE ─────────────────────────────────────────────────
+const ICE = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'turn:openrelay.metered.ca:80',                 username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turn:openrelay.metered.ca:443',                username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turns:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+];
+
+// ── DOM ──────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const SCREENS = ['s-idle','s-load','s-qr','s-scan','chat-wrap'];
+
+function show(id) {
+  SCREENS.forEach(s => $(s).hidden = true);
+  $(id).hidden = false;
+  if (id === 'chat-wrap') document.body.classList.add('in-chat');
+  else document.body.classList.remove('in-chat');
+}
+
+// ── Compress / decompress ────────────────────────────────
+async function pack(str) {
+  const cs = new CompressionStream('deflate-raw');
+  const w = cs.writable.getWriter();
+  w.write(new TextEncoder().encode(str));
+  w.close();
+  const buf = await new Response(cs.readable).arrayBuffer();
+  // base64url (no +/=) fits QR alphanumeric mode → denser QR
+  return btoa(String.fromCharCode(...new Uint8Array(buf)))
+    .replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+}
+
+async function unpack(b64url) {
+  const b64 = b64url.replace(/-/g,'+').replace(/_/g,'/');
+  const padded = b64 + '=='.slice(0, (4 - b64.length % 4) % 4);
+  const bytes = Uint8Array.from(atob(padded), c => c.charCodeAt(0));
+  const ds = new DecompressionStream('deflate-raw');
+  const w = ds.writable.getWriter();
+  w.write(bytes);
+  w.close();
+  const buf = await new Response(ds.readable).arrayBuffer();
+  return new TextDecoder().decode(buf);
+}
+
+// ── QR generation ────────────────────────────────────────
+async function showQR(data, instruction, nextLabel, nextCb) {
+  $('qr-txt').textContent = instruction;
+  $('qr-err').textContent = '';
+  try {
+    await QRCode.toCanvas($('qr-canvas'), data, { width: 260, errorCorrectionLevel: 'L' });
+  } catch (e) {
+    $('qr-err').textContent = 'QR oluşturulamadı — SDP çok büyük? ' + e.message;
+  }
+  const btn = $('btn-next');
+  btn.hidden = !nextLabel;
+  btn.textContent = nextLabel || '';
+  btn.onclick = nextCb || null;
+  show('s-qr');
+}
+
+// ── QR scanning ──────────────────────────────────────────
+let camStream = null, rafId = null;
+
+async function startScan(instruction, onResult) {
+  $('scan-txt').textContent = instruction;
+  $('scan-err').textContent = '';
+  show('s-scan');
+  const video = $('scan-video');
+  const canvas = $('scan-canvas');
+  const ctx = canvas.getContext('2d');
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    video.srcObject = camStream;
+    await video.play();
+  } catch (e) {
+    $('scan-err').textContent = 'Kamera açılamadı: ' + e.message; return;
+  }
+  function tick() {
+    if (video.readyState < 2) { rafId = requestAnimationFrame(tick); return; }
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+    if (code) { stopCam(); onResult(code.data); return; }
+    rafId = requestAnimationFrame(tick);
+  }
+  rafId = requestAnimationFrame(tick);
+}
+
+function stopCam() {
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+}
+
+// ── WebRTC ───────────────────────────────────────────────
+let pc, dc;
+
+function newPC() {
+  pc = new RTCPeerConnection({ iceServers: ICE });
+  return pc;
+}
+
+function waitICE(conn) {
+  if (conn.iceGatheringState === 'complete') return Promise.resolve();
+  return new Promise((res, rej) => {
+    const t = setTimeout(() => rej(new Error('ICE toplama zaman aşımı (15s)')), 15000);
+    conn.onicegatheringstatechange = () => {
+      if (conn.iceGatheringState === 'complete') { clearTimeout(t); res(); }
+    };
+  });
+}
+
+async function encDesc(desc) { return pack(JSON.stringify({ type: desc.type, sdp: desc.sdp })); }
+async function decDesc(raw)  { return JSON.parse(await unpack(raw)); }
+
+function wireChannel(ch) {
+  dc = ch;
+  ch.onmessage = ({ data }) => { try { addMsg(JSON.parse(data).t, 'them'); } catch {} };
+  if (ch.readyState === 'open') openChat();
+  else ch.onopen = openChat;
+}
+
+// ── Chat ─────────────────────────────────────────────────
+function t() { return new Date().toLocaleTimeString('tr-TR', { hour:'2-digit', minute:'2-digit' }); }
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function addMsg(text, type) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + type;
+  d.innerHTML = type === 'sys' ? esc(text) : `${esc(text)}<div class="msg-time">${t()}</div>`;
+  $('messages').appendChild(d);
+  $('messages').scrollTop = 1e9;
+}
+
+async function openChat() {
+  show('chat-wrap');
+  // Seçilen candidate türünü göster
+  await new Promise(r => setTimeout(r, 300));
+  try {
+    const stats = await pc.getStats();
+    const byId = {};
+    stats.forEach(s => { byId[s.id] = s; });
+    let pair = null;
+    stats.forEach(s => { if (s.type === 'candidate-pair' && s.nominated) pair = s; });
+    if (pair) {
+      const l = byId[pair.localCandidateId], r = byId[pair.remoteCandidateId];
+      const lbl = { host:'Direkt (LAN)', srflx:'STUN', relay:'TURN relay', prflx:'STUN (peer-ref)' };
+      $('cand-info').textContent =
+        `${lbl[l?.candidateType]||l?.candidateType} → ${lbl[r?.candidateType]||r?.candidateType} · ${(l?.protocol||'').toUpperCase()}`;
+    }
+  } catch {}
+  $('msg-in').focus();
+}
+
+function sendMsg() {
+  const text = $('msg-in').value.trim();
+  if (!text || !dc || dc.readyState !== 'open') return;
+  dc.send(JSON.stringify({ t: text }));
+  addMsg(text, 'me');
+  $('msg-in').value = '';
+}
+$('send-btn').onclick = sendMsg;
+$('msg-in').addEventListener('keydown', e => { if (e.key === 'Enter') sendMsg(); });
+
+// ── Başlatıcı akışı ───────────────────────────────────────
+$('btn-start').onclick = async () => {
+  show('s-load'); $('load-txt').textContent = 'Offer oluşturuluyor, ICE toplanıyor...';
+  newPC();
+  wireChannel(pc.createDataChannel('chat', { ordered: true }));
+  await pc.setLocalDescription(await pc.createOffer());
+  try {
+    await waitICE(pc);
+  } catch (e) { $('qr-err').textContent = e.message; }
+  const qrData = await encDesc(pc.localDescription);
+  await showQR(
+    qrData,
+    'Bunu karşı tarafa göster — tarasın',
+    'Karşı Tarafın Cevabını Tara →',
+    () => startScan('Karşı tarafın cevap QR\'ını göster', async raw => {
+      try {
+        await pc.setRemoteDescription(await decDesc(raw));
+      } catch (e) { $('scan-err').textContent = 'Geçersiz QR: ' + e.message; }
+    })
+  );
+};
+
+// ── Katılımcı akışı ──────────────────────────────────────
+$('btn-join').onclick = () =>
+  startScan('Başlatanın QR\'ını göster', async raw => {
+    show('s-load'); $('load-txt').textContent = 'Answer oluşturuluyor, ICE toplanıyor...';
+    try {
+      newPC();
+      pc.ondatachannel = ({ channel }) => wireChannel(channel);
+      await pc.setRemoteDescription(await decDesc(raw));
+      await pc.setLocalDescription(await pc.createAnswer());
+      try { await waitICE(pc); } catch (e) { $('qr-err').textContent = e.message; }
+      await showQR(await encDesc(pc.localDescription), 'Bunu karşı tarafa göster — tarasın', null, null);
+    } catch (e) { $('scan-err').textContent = 'Hata: ' + e.message; show('s-scan'); }
+  });
+
+show('s-idle');
+</script>
+</body>
+</html>
