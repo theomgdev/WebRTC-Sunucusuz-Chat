@@ -87,6 +87,13 @@ button.ghost { background: var(--surface); border: 1px solid var(--border); colo
 .chat-ftr button { width: 44px; height: 44px; border-radius: 50%; padding: 0; flex-shrink: 0; }
 
 .err { color: var(--red); font-size: .85rem; text-align: center; min-height: 1.2em; }
+.divider { color: var(--muted); font-size: .8rem; }
+#paste-in {
+  width: 100%; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 14px; color: var(--text);
+  font-size: .82rem; outline: none; resize: vertical; font-family: monospace;
+}
+#paste-in:focus { border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -109,6 +116,7 @@ button.ghost { background: var(--surface); border: 1px solid var(--border); colo
 <div id="s-qr" class="screen" hidden>
   <p id="qr-txt" class="sub"></p>
   <div id="qr-box"></div>
+  <button id="btn-copy" class="ghost">Metni Kopyala</button>
   <button id="btn-next" hidden></button>
   <p id="qr-err" class="err"></p>
 </div>
@@ -122,6 +130,9 @@ button.ghost { background: var(--surface); border: 1px solid var(--border); colo
   </div>
   <canvas id="scan-canvas" hidden></canvas>
   <p id="scan-err" class="err"></p>
+  <p class="divider">— veya metin olarak yapıştır —</p>
+  <textarea id="paste-in" placeholder="Karşı tarafın kopyaladığı metni buraya yapıştır..." rows="3"></textarea>
+  <button id="btn-paste" class="ghost">Yapıştır ve Devam Et</button>
 </div>
 
 <!-- 5. Chat -->
@@ -198,6 +209,17 @@ async function showQR(data, instruction, nextLabel, nextCb) {
   } catch (e) {
     $('qr-err').textContent = 'QR oluşturulamadı — SDP çok büyük olabilir: ' + e.message;
   }
+  const copyBtn = $('btn-copy');
+  copyBtn.textContent = 'Metni Kopyala';
+  copyBtn.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(data);
+      copyBtn.textContent = 'Kopyalandı!';
+      setTimeout(() => { copyBtn.textContent = 'Metni Kopyala'; }, 2000);
+    } catch {
+      copyBtn.textContent = 'Kopyalanamadı';
+    }
+  };
   const btn = $('btn-next');
   btn.hidden = !nextLabel;
   btn.textContent = nextLabel || '';
@@ -211,6 +233,13 @@ let camStream = null, rafId = null;
 async function startScan(instruction, onResult) {
   $('scan-txt').textContent = instruction;
   $('scan-err').textContent = '';
+  $('paste-in').value = '';
+  $('btn-paste').onclick = () => {
+    const val = $('paste-in').value.trim();
+    if (!val) { $('scan-err').textContent = 'Önce metni yapıştır.'; return; }
+    stopCam();
+    onResult(val);
+  };
   show('s-scan');
   const video = $('scan-video');
   const canvas = $('scan-canvas');
